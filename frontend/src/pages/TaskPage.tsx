@@ -3,6 +3,30 @@ import { Link, useParams } from "react-router-dom";
 import { api, eventsUrl, type Bid, type Task } from "../api";
 import { useSession } from "../session";
 
+const STATUS_LABELS: Record<string, string> = {
+  draft:          "Draft",
+  open:           "Open for Bids",
+  bidding_closed: "Bidding Closed",
+  assigned:       "Assigned",
+  in_progress:    "In Progress",
+  review:         "Under Review",
+  done:           "Done",
+};
+
+const ADVANCE_LABEL: Record<string, string> = {
+  draft:       "Open for Bidding",
+  open:        "Close Bidding",
+  assigned:    "Start Work",
+  in_progress: "Send to Review",
+  review:      "Mark as Done",
+};
+
+const BID_STATUS_LABELS: Record<string, string> = {
+  active:              "Active",
+  won:                 "Won",
+  skipped_no_capacity: "Skipped",
+};
+
 export function TaskPage() {
   const { id } = useParams();
   const { current, refresh, setNotice } = useSession();
@@ -26,9 +50,7 @@ export function TaskPage() {
 
   useEffect(() => {
     const source = new EventSource(eventsUrl());
-    const bump = () => {
-      load().catch(() => undefined);
-    };
+    const bump = () => { load().catch(() => undefined); };
     source.addEventListener("bid.created", bump);
     source.addEventListener("task.updated", bump);
     source.addEventListener("task.assigned", bump);
@@ -61,75 +83,148 @@ export function TaskPage() {
     }
   }
 
-  if (!task) return <div className="page">Loading…</div>;
+  if (!task)
+    return (
+      <div className="page">
+        <div style={{ padding: "40px 0", textAlign: "center", color: "var(--muted)" }}>
+          Loading task…
+        </div>
+      </div>
+    );
 
-  const remaining = current ? Number(current.remaining_capacity) : 0;
-  const canBid =
-    task.status === "open" && current && current.id !== task.created_by;
+  const isCreator = current?.id === task.created_by;
+  const canBid = task.status === "open" && current && !isCreator;
+  const canAdvance = task.status !== "bidding_closed" && task.status !== "done";
+  const deadline = new Date(task.deadline);
+  const overdue = deadline < new Date();
 
   return (
     <div className="page">
-      <p>
-        <Link to="/">← Board</Link>
-      </p>
-      <div className="page-head">
-        <div>
-          <h1>{task.title}</h1>
-          <h2>
-            {task.status.replaceAll("_", " ")} · posted by {task.created_by_name}
-          </h2>
+      <Link to="/" className="back-link">← Back to Board</Link>
+
+      <div className="page-head" style={{ alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ marginBottom: 8 }}>
+            <span className={`badge ${task.status}`}>
+              {STATUS_LABELS[task.status] ?? task.status}
+            </span>
+          </div>
+          <h1 className="task-title">{task.title}</h1>
+          <p className="task-subtitle">
+            Posted by <strong>{task.created_by_name}</strong>
+          </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="btn-group">
           {task.status === "bidding_closed" && (
             <button className="btn" disabled={busy} onClick={assign}>
-              Auto-assign lowest valid bid
+              {busy ? "Assigning…" : "⚡ Auto-Assign Lowest Bid"}
             </button>
           )}
-          {task.status !== "bidding_closed" && task.status !== "done" && (
+          {canAdvance && (
             <button className="btn secondary" disabled={busy} onClick={advance}>
-              Advance status
+              {busy ? "Advancing…" : (ADVANCE_LABEL[task.status] ?? "Advance Status")}
             </button>
           )}
         </div>
       </div>
+
       <div className="grid-2">
+        {/* Left — task info + bid form */}
         <section className="detail">
-          <p>{task.description}</p>
-          <div className="meta">
-            <span className="pill">complexity {task.complexity}</span>
-            <span className="pill">
-              deadline {new Date(task.deadline).toLocaleString()}
-            </span>
-            {task.assigned_to_name && (
-              <span className="pill">
-                assigned {task.assigned_to_name} ({Number(task.assigned_hours)}h)
+          <div className="section-title">Task Details</div>
+
+          <p className="task-description">
+            {task.description || <span className="muted">No description provided.</span>}
+          </p>
+
+          <div className="info-grid">
+            <div className="info-item">
+              <span className="info-label">Complexity</span>
+              <span className="info-value">
+                {"★".repeat(task.complexity)}{"☆".repeat(5 - task.complexity)} ({task.complexity}/5)
               </span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Deadline</span>
+              <span className="info-value" style={{ color: overdue ? "var(--danger)" : undefined }}>
+                {overdue ? "⚠ " : ""}{deadline.toLocaleString()}
+              </span>
+            </div>
+            {task.assigned_to_name && (
+              <div className="info-item">
+                <span className="info-label">Assigned To</span>
+                <span className="info-value">{task.assigned_to_name}</span>
+              </div>
+            )}
+            {task.assigned_hours && (
+              <div className="info-item">
+                <span className="info-label">Agreed Hours</span>
+                <span className="info-value">{Number(task.assigned_hours)}h</span>
+              </div>
             )}
           </div>
+
+          {task.assigned_to_name && (
+            <div className="assigned-box">
+              <strong>✓ Assigned</strong> — {task.assigned_to_name} will complete this task
+              in {Number(task.assigned_hours)}h
+            </div>
+          )}
+
           {canBid && current && (
             <BidForm
               taskId={task.id}
-              remaining={remaining}
               userId={current.id}
               onPlaced={async () => {
                 await Promise.all([load(), refresh()]);
               }}
             />
           )}
-          {task.status === "open" && current?.id === task.created_by && (
-            <p className="muted">You cannot bid on your own task.</p>
+
+          {task.status === "open" && isCreator && (
+            <div
+              className="bid-form"
+              style={{ background: "rgba(107,114,128,0.05)", borderColor: "var(--line)", marginTop: 16 }}
+            >
+              <p className="muted" style={{ margin: 0 }}>
+                You created this task and cannot place a bid on it.
+              </p>
+            </div>
           )}
         </section>
+
+        {/* Right — bids */}
         <section className="detail">
-          <h2>Bids (lowest hours first)</h2>
-          {bids.length === 0 && <p className="muted">No bids yet.</p>}
-          {bids.map((bid) => (
-            <div className="bid-row" key={bid.id}>
-              <span>{bid.user_name}</span>
-              <strong>{Number(bid.hours)}h</strong>
-              <span className="muted">{bid.status}</span>
-            </div>
-          ))}
+          <div className="section-title">
+            Bids{bids.length > 0
+              ? ` — ${bids.length} bid${bids.length > 1 ? "s" : ""}, lowest hours first`
+              : " — None yet"}
+          </div>
+          {bids.length === 0 && (
+            <p className="muted">No bids have been placed yet.</p>
+          )}
+          {bids.map((bid) => {
+            const isWon = bid.status === "won";
+            const isSkipped = bid.status === "skipped_no_capacity";
+            const rowClass = `bid-row${isWon ? " bid-won" : isSkipped ? " bid-skipped" : ""}`;
+            const tagClass = isWon ? "won" : isSkipped ? "skipped" : "active";
+            return (
+              <div className={rowClass} key={bid.id}>
+                <div>
+                  <div className="bid-name" style={{ fontWeight: 500, fontSize: 13 }}>
+                    {bid.user_name}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                    {new Date(bid.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <span className="bid-hours">{Number(bid.hours)}h</span>
+                <span className={`bid-status-tag ${tagClass}`}>
+                  {BID_STATUS_LABELS[bid.status] ?? bid.status}
+                </span>
+              </div>
+            );
+          })}
         </section>
       </div>
     </div>
@@ -138,63 +233,109 @@ export function TaskPage() {
 
 function BidForm({
   taskId,
-  remaining,
   userId,
   onPlaced,
 }: {
   taskId: string;
-  remaining: number;
   userId: string;
   onPlaced: () => Promise<void>;
 }) {
-  const { setNotice } = useSession();
+  const { setNotice, refresh } = useSession();
   const [hours, setHours] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [displayRemaining, setDisplayRemaining] = useState<number | null>(null);
+
+  // Load remaining capacity on mount
+  useEffect(() => {
+    api
+      .workload(userId, userId)
+      .then((u) => setDisplayRemaining(Number(u.remaining_capacity)))
+      .catch(() => undefined);
+  }, [userId]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const value = Number(hours);
-    if (!Number.isFinite(value) || value <= 0) {
-      setError("Enter a positive number of hours.");
-      return;
-    }
-    if (value > remaining) {
-      setError(`You only have ${remaining}h remaining this week.`);
-      return;
-    }
+    setLoading(true);
+    setError(null);
+
     try {
-      setError(null);
+      // Re-fetch fresh capacity at submit time — handles the edge case where capacity
+      // changed between page load and form submit (explicitly required by the spec).
+      const latestUser = await api.workload(userId, userId);
+      const latestRemaining = Number(latestUser.remaining_capacity);
+      setDisplayRemaining(latestRemaining);
+
+      const value = Number(hours);
+      if (!Number.isFinite(value) || value <= 0) {
+        setError("Enter a positive number of hours.");
+        return;
+      }
+      if (value > latestRemaining) {
+        setError(
+          `Your capacity changed. You now have ${latestRemaining}h remaining — reduce your bid.`
+        );
+        return;
+      }
+
       await api.placeBid(taskId, userId, value);
       setHours("");
       await onPlaced();
+      refresh().catch(() => undefined);
     } catch (err) {
       const message = (err as Error).message;
       setError(message);
       setNotice(message);
+    } finally {
+      setLoading(false);
     }
   }
 
+  const remaining = displayRemaining ?? 0;
+  const hoursNum = Number(hours);
+  const overBid =
+    hours !== "" && Number.isFinite(hoursNum) && hoursNum > remaining && remaining > 0;
+
   return (
-    <form onSubmit={onSubmit} style={{ marginTop: 20 }}>
-      <h2>Place a bid</h2>
-      <p className="muted">Remaining capacity: {remaining}h</p>
-      <div className="field">
-        <label htmlFor="hours">Hours offered</label>
-        <input
-          id="hours"
-          type="number"
-          min={0.25}
-          step={0.25}
-          max={remaining || undefined}
-          value={hours}
-          onChange={(e) => setHours(e.target.value)}
-          required
-        />
-      </div>
-      {error && <p className="error">{error}</p>}
-      <button className="btn" type="submit" disabled={remaining <= 0}>
-        Submit bid
-      </button>
-    </form>
+    <div className="bid-form">
+      <h3>Place a Bid</h3>
+      <p className="capacity-hint">
+        Your remaining weekly capacity:{" "}
+        <strong style={{ color: remaining <= 0 ? "var(--danger)" : "var(--accent-2)" }}>
+          {displayRemaining === null ? "…" : `${remaining}h`}
+        </strong>
+        {remaining <= 0 && displayRemaining !== null && " — no available capacity"}
+      </p>
+      <form onSubmit={onSubmit}>
+        <div className="field">
+          <label htmlFor="hours">Hours offered</label>
+          <input
+            id="hours"
+            type="number"
+            min={0.25}
+            step={0.25}
+            max={remaining > 0 ? remaining : undefined}
+            value={hours}
+            onChange={(e) => { setHours(e.target.value); setError(null); }}
+            placeholder={remaining > 0 ? `Max ${remaining}h` : "No capacity available"}
+            required
+            disabled={remaining <= 0 && displayRemaining !== null}
+          />
+        </div>
+        {overBid && (
+          <p className="error">
+            You only have {remaining}h available — bid cannot exceed this.
+          </p>
+        )}
+        {error && !overBid && <p className="error">{error}</p>}
+        <button
+          className="btn"
+          type="submit"
+          disabled={(remaining <= 0 && displayRemaining !== null) || loading || overBid}
+        >
+          {loading ? "Submitting…" : "Submit Bid"}
+        </button>
+      </form>
+    </div>
   );
 }
