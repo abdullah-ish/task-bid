@@ -1,0 +1,20 @@
+{
+  "name": "taskbid",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api & npm run dev:web",
+    "dev:api": "cd backend && node --env-file=../.env --watch --import tsx src/index.ts",
+    "dev:web": "cd frontend && ../node_modules/.bin/vite --host 0.0.0.0",
+    "build": "cd backend && ../node_modules/.bin/tsc && cd ../frontend && ../node_modules/.bin/vite build",
+    "migrate": "cd backend && node --env-file=../.env --import tsx src/scripts/migrate.ts",
+    "seed": "cd backend && node --env-file=../.env --import tsx src/scripts/seed.ts",
+    "test": "cd backend && node --env-file=../.env --import tsx --test src/assign.race.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

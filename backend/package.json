@@ -1,0 +1,25 @@
+{
+  "name": "@taskbid/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../.env --watch --import tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "node --env-file=../.env --import tsx src/scripts/migrate.ts",
+    "seed": "node --env-file=../.env --import tsx src/scripts/seed.ts",
+    "test": "node --env-file=../.env --import tsx --test src/assign.race.test.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
