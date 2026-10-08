@@ -6,9 +6,14 @@ import { config } from "./config.js";
 
 const { Pool } = pg;
 
+const isSslRequired =
+  config.databaseUrl.includes("sslmode=require") ||
+  config.databaseUrl.includes("sslmode=verify-full");
+
 export const pool = new Pool({
   connectionString: config.databaseUrl,
   max: 10,
+  ssl: isSslRequired ? { rejectUnauthorized: false } : false,
 });
 
 export type Client = pg.PoolClient;
