@@ -2,7 +2,9 @@
 
 Internal task auction: teammates post work, others bid hours, the lowest *valid* bid wins. Built as a TypeScript React + Node.js + PostgreSQL app with constraints enforced in the database.
 
-**Live URL:** _add after deploy_
+**🌐 Live App:** https://task-bid-xi.vercel.app
+
+**⚙️ API:** https://task-bid-production.up.railway.app
 
 ## Stack
 
